@@ -25,6 +25,18 @@ def check_password():
 def run_app():
     st.set_page_config(page_title="Financial Research Agent", layout="wide")
 
+    # --- NEU: Logik für mehrere Chats ---
+    NUM_CHATS = 10
+    
+    # 1. Initialisiere 10 leere Chat-Verläufe, falls sie nicht existieren
+    if "all_chats" not in st.session_state:
+        # Erstellt eine Liste, die 10 leere Listen enthält: [ [], [], ..., [] ]
+        st.session_state.all_chats = [[] for _ in range(NUM_CHATS)]
+    
+    # 2. Initialisiere den Index des aktiven Chats
+    if "active_chat_index" not in st.session_state:
+        st.session_state.active_chat_index = 0 # Startet mit "Chat 1"
+
     # --- Seitenleiste (Sidebar) ---
     with st.sidebar:
         st.title("Einstellungen")
@@ -34,7 +46,23 @@ def run_app():
         except KeyError:
             st.error("API Key nicht in Secrets gefunden!", icon="❌")
 
-        # Badge
+        # --- NEU: Chat-Auswahl ---
+        st.subheader("Meine Chats")
+        # Erstellt die Namen, z.B. "Chat 1", "Chat 2", ...
+        chat_option_names = [f"Chat {i+1}" for i in range(NUM_CHATS)]
+        
+        # Zeigt die Radio-Buttons an
+        selected_chat_name = st.radio(
+            "Wählen Sie einen Chat:",
+            options=chat_option_names,
+            index=st.session_state.active_chat_index
+        )
+        
+        # Aktualisiere den aktiven Chat-Index basierend auf der Auswahl
+        st.session_state.active_chat_index = chat_option_names.index(selected_chat_name)
+        
+        # --- (Rest der Sidebar, unverändert) ---
+        st.markdown("---") # Trennlinie
         st.markdown(
             '<div style="background-color: #28a745; color: white; padding: 10px; border-radius: 5px; font-weight: bold; text-align: center;">KOSTENLOS!<br>$0/Monat</div>',
             unsafe_allow_html=True
@@ -45,12 +73,8 @@ def run_app():
         * 1M Tokens/Minute
         * 1.500 Requests/Tag
         """)
-        st.caption("Für normale Nutzung völlig ausreichend!")
-        
-        # HINWEIS: Die Beispiel-Fragen-Buttons wurden entfernt,
-        # da wir jetzt st.chat_input() verwenden.
 
-    # --- Agent initialisieren ---
+    # --- Agent initialisieren (Unverändert) ---
     try:
         agent = FinancialAgent()
     except Exception as e:
@@ -59,43 +83,42 @@ def run_app():
 
     # --- HAUPTSEITE (Titel) ---
     st.title("📊 Financial Research Agent")
-    st.caption("Powered by Google Gemini 2.0 Flash ⚡ | ⚠️ Keine Finanzberatung")
+    st.caption(f"Aktuell in: **{selected_chat_name}** | ⚠️ Keine Finanzberatung")
 
-    # --- NEU: Chat-Logik ---
+    # --- Angepasste Chat-Logik ---
 
-    # 1. Initialisiere den Chat-Verlauf im Session State, falls er nicht existiert
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    # 1. Holt den Verlauf für den *aktuell ausgewählten* Chat
+    current_chat_history = st.session_state.all_chats[st.session_state.active_chat_index]
 
-    # 2. Zeige alle bisherigen Nachrichten an
-    for message in st.session_state.messages:
+    # 2. Zeige alle bisherigen Nachrichten DIESES Chats an
+    for message in current_chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 3. Neue Chat-Eingabe (ersetzt st.text_input und st.button)
-    # Die Eingabebox ist jetzt am unteren Rand fixiert.
+    # 3. Neue Chat-Eingabe (unten fixiert)
     if query := st.chat_input("Stellen Sie Ihre Finanzfrage..."):
         
-        # 4. Zeige die User-Nachricht an und speichere sie
+        # 4. Zeige die User-Nachricht an und speichere sie im AKTIVEN Chat
         with st.chat_message("user"):
             st.markdown(query)
-        st.session_state.messages.append({"role": "user", "content": query})
+        # --- NEU: Speichert im richtigen Chat-Slot ---
+        current_chat_history.append({"role": "user", "content": query})
 
         # 5. Rufe den Agenten auf und zeige die Antwort an
         with st.chat_message("assistant"):
             with st.spinner("Agent recherchiert und analysiert..."):
                 try:
-                    # Ruft die run-Funktion Ihres Agenten auf
                     response = agent.run(query) 
                     st.markdown(response)
-                    # 6. Speichere die Agenten-Antwort
-                    st.session_state.messages.append({"role": "assistant", "content": response})
+                    # 6. Speichere die Agenten-Antwort im AKTIVEN Chat
+                    # --- NEU: Speichert im richtigen Chat-Slot ---
+                    current_chat_history.append({"role": "assistant", "content": response})
                 except Exception as e:
                     error_msg = f"Ein Fehler ist aufgetreten: {e}"
                     st.error(error_msg)
-                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                    # --- NEU: Speichert im richtigen Chat-Slot ---
+                    current_chat_history.append({"role": "assistant", "content": error_msg})
 
-# --- FINALE LOGIK: ZUERST PASSWORT PRÜFEN ---
+# --- FINALE LOGIK: ZUERST PASSWORT PRÜFEN (Unverändert) ---
 if check_password():
     run_app()
-
