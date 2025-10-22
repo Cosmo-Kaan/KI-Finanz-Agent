@@ -324,4 +324,75 @@ class FinancialAgent:
         if not steps:
             print("⚠️  Could not create research plan. Fallback to direct search.")
             # Fallback: Wenn die Planung fehlschlägt, einfach direkt googeln
-            steps = [{"
+            steps = [{"action": "search_web", "params": {"query": query}, "reason": "Fallback-Suche"}]
+        
+        print(f"✅ Created {len(steps)} research steps\n")
+        
+        # 2. Schritte ausführen
+        print("🔬 Executing research steps...")
+        collected_data = {}
+        
+        for i, step in enumerate(steps, 1):
+            print(f"\nStep {i}/{len(steps)}: {step.get('reason', 'No reason provided')}")
+            result = self.execute_step(step)
+            collected_data[f"step_{i}_{step.get('action')}"] = result
+        
+        print("\n✅ All steps executed\n")
+        
+        # 3. Gemini-Analyse
+        print("🤖 Generating analysis with Gemini...")
+        analysis = self.analyze_with_gemini(query, collected_data)
+        
+        print(f"\n{'='*80}\n📈 ANALYSIS\n{'='*80}\n{analysis}\n{'='*80}\n")
+        
+        return analysis
+
+
+def main():
+    """Interaktive CLI"""
+    print("""
+    ╔══════════════════════════════════════════════════════════════╗
+    ║         FINANCIAL RESEARCH AGENT (GOOGLE GEMINI)             ║
+    ║                                                              ║
+    ║  Powered by: Google Gemini Flash & DuckDuckGo Search         ║
+    ║  Cost: $0/month (free tier)                                 ║
+    ║                                                              ║
+    ║  Datenquellen:                                              ║
+    ║  - Yahoo Finance (Aktien)                                   ║
+    ║  - CoinGecko (Krypto)                                       ║
+    ║  - DuckDuckGo (Web-Suche)                                   ║
+    ╚══════════════════════════════════════════════════════════════╝
+    """)
+    
+    # Agent initialisieren
+    try:
+        agent = FinancialAgent()
+    except Exception as e:
+        print(f"❌ Fehler beim Initialisieren: {e}")
+        print(f"\nBitte setzen Sie Ihren Google API Key:")
+        print(f"  export GOOGLE_API_KEY='AIza...'")
+        print(f"\nAPI Key erhalten Sie bei: https://aistudio.google.com")
+        return
+    
+    while True:
+        try:
+            query = input("\n💬 Your question: ").strip()
+            
+            if query.lower() in ['quit', 'exit', 'q']:
+                print("\n👋 Goodbye!")
+                break
+            
+            if not query:
+                continue
+            
+            agent.run(query)
+            
+        except KeyboardInterrupt:
+            print("\n\n👋 Goodbye!")
+            break
+        except Exception as e:
+            print(f"\n❌ Error: {str(e)}")
+
+
+if __name__ == "__main__":
+    main()
