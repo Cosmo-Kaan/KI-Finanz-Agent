@@ -112,6 +112,7 @@ class FinancialAgent:
             }
             
             return {
+                "source": "Yahoo Finance (yfinance)",
                 "fundamentals": fundamentals,
                 "valuation": valuation,
                 "profitability": profitability,
@@ -125,8 +126,9 @@ class FinancialAgent:
             return {"error": f"Failed to fetch data for {ticker}: {str(e)}"}
     
     def get_crypto_data(self, symbol: str) -> Dict:
-        """Holt Krypto-Daten von CoinGecko"""
+        """Holt Krypto-Daten von CoinGecko (JETZT IN EUR)"""
         try:
+            # --- LÖSUNG B: API wird direkt nach Euro gefragt ---
             url = f"https://api.coingecko.com/api/v3/coins/{symbol.lower()}"
             response = requests.get(url, timeout=10)
             data = response.json()
@@ -134,19 +136,21 @@ class FinancialAgent:
             market_data = data.get("market_data", {})
             
             return {
+                "source": "CoinGecko API",
                 "symbol": symbol,
                 "name": data.get("name", "N/A"),
-                "current_price": market_data.get("current_price", {}).get("usd", "N/A"),
-                "market_cap": market_data.get("market_cap", {}).get("usd", "N/A"),
+                # --- LÖSUNG B: Alle .get("usd", ...) auf .get("eur", ...) geändert ---
+                "current_price_eur": market_data.get("current_price", {}).get("eur", "N/A"),
+                "market_cap_eur": market_data.get("market_cap", {}).get("eur", "N/A"),
                 "market_cap_rank": data.get("market_cap_rank", "N/A"),
-                "total_volume": market_data.get("total_volume", {}).get("usd", "N/A"),
-                "price_change_24h": market_data.get("price_change_percentage_24h", "N/A"),
-                "price_change_7d": market_data.get("price_change_percentage_7d", "N/A"),
-                "price_change_30d": market_data.get("price_change_percentage_30d", "N/A"),
-                "price_change_1y": market_data.get("price_change_percentage_1y", "N/A"),
-                "ath": market_data.get("ath", {}).get("usd", "N/A"),
-                "ath_date": market_data.get("ath_date", {}).get("usd", "N/A"),
-                "atl": market_data.get("atl", {}).get("usd", "N/A"),
+                "total_volume_eur": market_data.get("total_volume", {}).get("eur", "N/A"),
+                "price_change_24h_percent": market_data.get("price_change_percentage_24h", "N/A"),
+                "price_change_7d_percent": market_data.get("price_change_percentage_7d", "N/A"),
+                "price_change_30d_percent": market_data.get("price_change_percentage_30d", "N/A"),
+                "price_change_1y_percent": market_data.get("price_change_percentage_1y", "N/A"),
+                "ath_eur": market_data.get("ath", {}).get("eur", "N/A"),
+                "ath_date_eur": market_data.get("ath_date", {}).get("eur", "N/A"),
+                "atl_eur": market_data.get("atl", {}).get("eur", "N/A"),
                 "circulating_supply": market_data.get("circulating_supply", "N/A"),
                 "total_supply": market_data.get("total_supply", "N/A"),
             }
@@ -170,6 +174,7 @@ class FinancialAgent:
             treasury_hist = treasury.history(period="1mo")
             
             return {
+                "source": "Yahoo Finance (yfinance)",
                 "sp500": {
                     "current": float(sp500_hist['Close'].iloc[-1]) if len(sp500_hist) > 0 else None,
                     "change_1m": ((sp500_hist['Close'].iloc[-1] / sp500_hist['Close'].iloc[0] - 1) * 100) if len(sp500_hist) > 0 else None,
@@ -188,33 +193,29 @@ class FinancialAgent:
     
     def analyze_with_gemini(self, query: str, data: Dict) -> str:
         """Nutzt Gemini für intelligente Analyse"""
-        system_instruction = """Du bist ein erfahrener Finanzanalyst mit tiefer Expertise in:
-        - Fundamental-Analyse (Bewertung, Profitabilität, Wachstum)
-        - Technischer Analyse (Trends, Unterstützung/Widerstand)
-        - Makroökonomie (Marktkontext, Zinsen, Volatilität)
-        - Risikobewertung (Chancen/Risiken-Verhältnis)
         
+        # --- LÖSUNG A: Strengerer System-Prompt gegen Halluzinationen ---
+        system_instruction = """Du bist ein präziser Finanzdaten-Analyst.
+
         Deine Aufgabe:
-        1. Analysiere die bereitgestellten Finanzdaten gründlich
-        2. Beantworte die Frage des Nutzers präzise und umfassend
-        3. Nutze konkrete Zahlen und Berechnungen
-        4. Strukturiere deine Antwort klar (Executive Summary, Detailanalyse, Fazit)
-        5. Weise auf Chancen UND Risiken hin
-        6. Gib einen klaren Ausblick
-        
-        WICHTIG: 
-        - Dies ist KEINE Finanzberatung
-        - Weise den Nutzer darauf hin, eigene Research zu machen
-        - Empfehle Konsultation eines Finanzberaters für Investitionsentscheidungen
+        1. Analysiere AUSSCHLIESSLICH die bereitgestellten JSON-Daten.
+        2. Beantworte die Frage des Nutzers präzise.
+        3. Verwende NUR Zahlen und Fakten aus den Daten. Gib die Quelle an (z.B. "Laut CoinGecko...", "Laut Yahoo Finance...").
+
+        WICHTIGE REGELN:
+        - ERFINDE NIEMALS Daten, Währungen (z.B. EUR erfinden, wenn USD gegeben) oder Datumsangaben.
+        - Wenn eine Information (z.B. ein unbekanntes Protokoll) nicht in den Daten enthalten ist, sage klar: "Ich habe keine Daten zu [Thema]."
+        - Wenn Daten Währungs-Suffixe haben (z.B. 'current_price_eur'), verwende diese (z.B. "Der Preis beträgt X EUR").
+        - Dies ist KEINE Finanzberatung. Weise am Ende immer darauf hin.
         """
         
         user_prompt = f"""
         Nutzer-Frage: {query}
         
-        Verfügbare Daten:
+        Verfügbare Daten (aus APIs):
         {json.dumps(data, indent=2, default=str)}
         
-        Analysiere die Daten professionell und beantworte die Frage umfassend.
+        Analysiere die Daten professionell und beantworte die Frage umfassend, basierend NUR auf den obigen Daten.
         """
         
         try:
@@ -406,4 +407,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
