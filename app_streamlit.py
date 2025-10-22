@@ -2,53 +2,39 @@
 import streamlit as st
 from agent import FinancialAgent  # Importiert agent.py
 
-# --- HIER BEGINNT DIE PASSWORTSCHUTZ-LOGIK ---
+# --- PASSWORTSCHUTZ (Unverändert) ---
 def check_password():
-    """Gibt True zurück, wenn das Passwort korrekt ist, sonst False."""
-    
-    # 1. Passwort aus den Streamlit Secrets holen
     try:
-        # Holt das Passwort, das Sie in den Secrets gespeichert haben
         correct_password = st.secrets["APP_PASSWORD"]
     except KeyError:
         st.error("Fehler: APP_PASSWORD wurde nicht in den Streamlit Secrets gesetzt!")
-        st.stop() # Hält die App an
+        st.stop() 
 
-    # 2. Passwort-Eingabefeld anzeigen
     password = st.text_input("Bitte geben Sie das Passwort ein:", type="password")
 
-    # 3. Überprüfen
     if not password:
-        st.stop()  # Stoppt die Ausführung, bis etwas eingegeben wird
+        st.stop()  
     
     if password == correct_password:
-        return True  # Passwort korrekt, App darf starten
+        return True
     else:
         st.error("Passwort ist falsch.")
-        return False # Passwort falsch, App stoppt
+        return False
 
-# --- Die eigentliche App-Logik (Ihr bisheriger Code) ---
+# --- HAUPT-ANWENDUNG ---
 def run_app():
-    """Führt die Finanz-Agent-App aus, NACHDEM das Passwort korrekt war."""
     st.set_page_config(page_title="Financial Research Agent", layout="wide")
-    
-    # Der API-Key wird jetzt HIER geladen, nicht mehr in der Seitenleiste
-    try:
-        api_key_secret = st.secrets["GOOGLE_API_KEY"]
-    except KeyError:
-        st.error("Fehler: GOOGLE_API_KEY nicht in Streamlit Secrets gefunden!")
-        st.stop()
-    
-    # Seitenleiste (Sidebar)
+
+    # --- Seitenleiste (Sidebar) ---
     with st.sidebar:
         st.title("Einstellungen")
-        # Das alte API-Key-Feld ist jetzt weg.
-        
-        # Stattdessen können wir anzeigen, dass der Key geladen ist:
-        if api_key_secret:
-            st.success("API Key erfolgreich geladen!", icon="✅")
+        try:
+            if st.secrets["GOOGLE_API_KEY"]:
+                st.success("API Key erfolgreich geladen!", icon="✅")
+        except KeyError:
+            st.error("API Key nicht in Secrets gefunden!", icon="❌")
 
-        # Badge (wie in der Anleitung)
+        # Badge
         st.markdown(
             '<div style="background-color: #28a745; color: white; padding: 10px; border-radius: 5px; font-weight: bold; text-align: center;">KOSTENLOS!<br>$0/Monat</div>',
             unsafe_allow_html=True
@@ -61,63 +47,55 @@ def run_app():
         """)
         st.caption("Für normale Nutzung völlig ausreichend!")
         
-        st.subheader("Beispiel-Fragen")
-        if st.button("Analyze Apple's financial health"):
-            st.session_state.query = "Analyze Apple's financial health"
-        if st.button("Compare Tesla and Ford"):
-            st.session_state.query = "Compare Tesla and Ford"
+        # HINWEIS: Die Beispiel-Fragen-Buttons wurden entfernt,
+        # da wir jetzt st.chat_input() verwenden.
 
-    # Hauptseite
-    st.title("📊 Financial Research Agent")
-    st.markdown("Stellen Sie Fragen zu Aktien, Krypto oder Märkten. Der Agent analysiert automatisch die relevanten Daten und gibt Ihnen professionelle Insights – **komplett kostenlos!**")
-    st.caption("Powered by Google Gemini 2.0 Flash ⚡")
-
-    # Initialisierung des Agenten
+    # --- Agent initialisieren ---
     try:
-        # Wir übergeben den Key, den wir aus den Secrets geholt haben
-        # HINWEIS: Ihre agent.py MUSS dies unterstützen.
-        # Ihre agent.py lädt den Key selbst
-        # Daher ist die Zeile unten auskommentiert, da agent.py es selbst macht.
-        # agent = FinancialAgent(api_key=api_key_secret) 
-        
-        # Stattdessen rufen wir es ohne Argument auf:
         agent = FinancialAgent()
-        
     except Exception as e:
-        st.error(f"Fehler beim Initialisieren des Agenten: {e}")
+        st.error(f"Fehler beim Initialisieren des Agenten (Prüfen Sie den API Key): {e}")
         st.stop()
 
-    # Chat/Query-Eingabe
-    if 'query' not in st.session_state:
-        st.session_state.query = ""
+    # --- HAUPTSEITE (Titel) ---
+    st.title("📊 Financial Research Agent")
+    st.caption("Powered by Google Gemini 2.0 Flash ⚡ | ⚠️ Keine Finanzberatung")
 
-    query = st.text_input("Ihre Anfrage (z.B. Analyze Apple's financial health):", 
-                          value=st.session_state.query,
-                          placeholder="z.B. Analyze Apple's financial health")
-    
-    if st.button("Analysieren"):
-        if query:
-            with st.spinner("Agent recherchiert und analysiert... (Dies kann 10-30 Sekunden dauern)"):
+    # --- NEU: Chat-Logik ---
+
+    # 1. Initialisiere den Chat-Verlauf im Session State, falls er nicht existiert
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # 2. Zeige alle bisherigen Nachrichten an
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # 3. Neue Chat-Eingabe (ersetzt st.text_input und st.button)
+    # Die Eingabebox ist jetzt am unteren Rand fixiert.
+    if query := st.chat_input("Stellen Sie Ihre Finanzfrage..."):
+        
+        # 4. Zeige die User-Nachricht an und speichere sie
+        with st.chat_message("user"):
+            st.markdown(query)
+        st.session_state.messages.append({"role": "user", "content": query})
+
+        # 5. Rufe den Agenten auf und zeige die Antwort an
+        with st.chat_message("assistant"):
+            with st.spinner("Agent recherchiert und analysiert..."):
                 try:
-                    # Annahme: Ihr Agent hat eine 'run' Methode
+                    # Ruft die run-Funktion Ihres Agenten auf
                     response = agent.run(query) 
-                    st.success("Analyse abgeschlossen!")
                     st.markdown(response)
+                    # 6. Speichere die Agenten-Antwort
+                    st.session_state.messages.append({"role": "assistant", "content": response})
                 except Exception as e:
-                    st.error(f"Ein Fehler ist aufgetreten: {e}")
-        else:
-            st.warning("Bitte geben Sie eine Anfrage ein.")
+                    error_msg = f"Ein Fehler ist aufgetreten: {e}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
-    # Footer
-    st.markdown("---")
-    st.caption("Gebaut mit 🤍 | Open Source | MIT Lizenz")
-    st.caption("⚠️ Keine Finanzberatung - Konsultieren Sie einen Finanzberater")
-
-
-# --- HAUPT-LOGIK ---
-
-# 1. Prüfe das Passwort
+# --- FINALE LOGIK: ZUERST PASSWORT PRÜFEN ---
 if check_password():
-    # 2. Wenn Passwort korrekt ist, starte die Hauptanwendung
     run_app()
 
