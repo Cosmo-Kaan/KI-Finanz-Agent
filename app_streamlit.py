@@ -6,7 +6,7 @@ Optimiert für Google Gemini Flash (KOSTENLOS!)
 
 import streamlit as st
 import os
-from agent_gemini import FinancialAgent
+from agent import FinancialAgent
 from datetime import datetime
 
 # Page Config
