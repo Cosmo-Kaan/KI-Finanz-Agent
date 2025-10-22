@@ -25,15 +25,17 @@ def check_password():
 def run_app():
     st.set_page_config(page_title="Financial Research Agent", layout="wide")
 
-    # --- NEU: Logik für mehrere Chats ---
+    # --- GEÄNDERT: Logik für mehrere, benennbare Chats ---
     NUM_CHATS = 10
     
-    # 1. Initialisiere 10 leere Chat-Verläufe, falls sie nicht existieren
-    if "all_chats" not in st.session_state:
-        # Erstellt eine Liste, die 10 leere Listen enthält: [ [], [], ..., [] ]
-        st.session_state.all_chats = [[] for _ in range(NUM_CHATS)]
+    # 1. Initialisiere 10 Chat-Objekte (Diktionäre), falls sie nicht existieren
+    if "chats" not in st.session_state:
+        # Jedes Objekt speichert jetzt seinen eigenen Namen und Verlauf
+        st.session_state.chats = [
+            {"name": f"Chat {i+1}", "history": []} for i in range(NUM_CHATS)
+        ]
     
-    # 2. Initialisiere den Index des aktiven Chats
+    # 2. Initialisiere den Index des aktiven Chats (unverändert)
     if "active_chat_index" not in st.session_state:
         st.session_state.active_chat_index = 0 # Startet mit "Chat 1"
 
@@ -46,21 +48,36 @@ def run_app():
         except KeyError:
             st.error("API Key nicht in Secrets gefunden!", icon="❌")
 
-        # --- NEU: Chat-Auswahl ---
+        # --- GEÄNDERT: Chat-Auswahl liest jetzt custom Namen ---
         st.subheader("Meine Chats")
-        # Erstellt die Namen, z.B. "Chat 1", "Chat 2", ...
-        chat_option_names = [f"Chat {i+1}" for i in range(NUM_CHATS)]
         
-        # Zeigt die Radio-Buttons an
+        # Holt die *aktuellen* Namen aus der session_state Struktur
+        chat_option_names = [chat["name"] for chat in st.session_state.chats]
+        
+        # Zeigt die Radio-Buttons mit den custom Namen an
         selected_chat_name = st.radio(
             "Wählen Sie einen Chat:",
             options=chat_option_names,
             index=st.session_state.active_chat_index
         )
         
-        # Aktualisiere den aktiven Chat-Index basierend auf der Auswahl
+        # Aktualisiere den aktiven Chat-Index basierend auf dem Namen
         st.session_state.active_chat_index = chat_option_names.index(selected_chat_name)
+
+        # --- NEU: Textfeld zum Umbenennen des AKTIVEN Chats ---
+        active_chat = st.session_state.chats[st.session_state.active_chat_index]
         
+        new_name = st.text_input(
+            "Chat umbenennen:", 
+            value=active_chat["name"] # Zeigt den aktuellen Namen an
+        )
+        
+        if new_name != active_chat["name"]:
+            # Wenn der Name geändert wurde, speichere ihn
+            st.session_state.chats[st.session_state.active_chat_index]["name"] = new_name
+            # Erzwinge einen Neustart des Scripts, damit die Radio-Liste aktualisiert wird
+            st.rerun()
+
         # --- (Rest der Sidebar, unverändert) ---
         st.markdown("---") # Trennlinie
         st.markdown(
@@ -83,14 +100,15 @@ def run_app():
 
     # --- HAUPTSEITE (Titel) ---
     st.title("📊 Financial Research Agent")
-    st.caption(f"Aktuell in: **{selected_chat_name}** | ⚠️ Keine Finanzberatung")
+    # --- GEÄNDERT: Zeigt jetzt den custom Namen an ---
+    st.caption(f"Aktuell in: **{st.session_state.chats[st.session_state.active_chat_index]['name']}** | ⚠️ Keine Finanzberatung")
 
-    # --- Angepasste Chat-Logik ---
+    # --- GEÄNDERT: Angepasste Chat-Logik ---
 
     # 1. Holt den Verlauf für den *aktuell ausgewählten* Chat
-    current_chat_history = st.session_state.all_chats[st.session_state.active_chat_index]
+    current_chat_history = st.session_state.chats[st.session_state.active_chat_index]["history"]
 
-    # 2. Zeige alle bisherigen Nachrichten DIESES Chats an
+    # 2. Zeige alle bisherigen Nachrichten DIESES Chats an (unverändert)
     for message in current_chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
@@ -101,7 +119,7 @@ def run_app():
         # 4. Zeige die User-Nachricht an und speichere sie im AKTIVEN Chat
         with st.chat_message("user"):
             st.markdown(query)
-        # --- NEU: Speichert im richtigen Chat-Slot ---
+        # --- GEÄNDERT: Speichert im "history"-Teil des Chat-Objekts ---
         current_chat_history.append({"role": "user", "content": query})
 
         # 5. Rufe den Agenten auf und zeige die Antwort an
@@ -111,12 +129,11 @@ def run_app():
                     response = agent.run(query) 
                     st.markdown(response)
                     # 6. Speichere die Agenten-Antwort im AKTIVEN Chat
-                    # --- NEU: Speichert im richtigen Chat-Slot ---
+                    # --- GEÄNDERT: Speichert im "history"-Teil des Chat-Objekts ---
                     current_chat_history.append({"role": "assistant", "content": response})
                 except Exception as e:
                     error_msg = f"Ein Fehler ist aufgetreten: {e}"
                     st.error(error_msg)
-                    # --- NEU: Speichert im richtigen Chat-Slot ---
                     current_chat_history.append({"role": "assistant", "content": error_msg})
 
 # --- FINALE LOGIK: ZUERST PASSWORT PRÜFEN (Unverändert) ---
