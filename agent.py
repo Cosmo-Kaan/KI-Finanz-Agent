@@ -17,7 +17,7 @@ class FinancialAgent:
     Financial Research Agent powered by Google Gemini Flash
     """
     
-    def __init__(self, model: str = "gemini-2.0-flash-exp"):
+    def __init__(self, model: str = "gemini-1.5-flash-latest"):
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY not found in environment variables")
