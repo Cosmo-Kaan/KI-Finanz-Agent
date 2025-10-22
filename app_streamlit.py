@@ -1,243 +1,123 @@
 #!/usr/bin/env python3
-"""
-Streamlit Web-App für Financial Research Agent
-Optimiert für Google Gemini Flash (KOSTENLOS!)
-"""
-
 import streamlit as st
-import os
-from agent import FinancialAgent
-from datetime import datetime
+from agent import FinancialAgent  # Importiert agent.py
 
-# Page Config
-st.set_page_config(
-    page_title="Financial Research Agent (Gemini)",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# Custom CSS
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .cost-badge {
-        background-color: #28a745;
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 0.5rem;
-        font-weight: bold;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #1f77b4;
-        color: white;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Initialize session state
-if 'history' not in st.session_state:
-    st.session_state.history = []
-if 'agent' not in st.session_state:
-    st.session_state.agent = None
-
-# Sidebar
-with st.sidebar:
-    st.markdown("## ⚙️ Einstellungen")
+# --- HIER BEGINNT DIE PASSWORTSCHUTZ-LOGIK ---
+def check_password():
+    """Gibt True zurück, wenn das Passwort korrekt ist, sonst False."""
     
-    # API Key Input
-    api_key = st.text_input(
-        "Google API Key",
-        type="password",
-        value=os.getenv("GOOGLE_API_KEY", ""),
-        help="Ihr Google API Key (beginnt mit AIza...)"
-    )
+    # 1. Passwort aus den Streamlit Secrets holen
+    try:
+        # Holt das Passwort, das Sie in den Secrets gespeichert haben
+        correct_password = st.secrets["APP_PASSWORD"]
+    except KeyError:
+        st.error("Fehler: APP_PASSWORD wurde nicht in den Streamlit Secrets gesetzt!")
+        st.stop() # Hält die App an
+
+    # 2. Passwort-Eingabefeld anzeigen
+    password = st.text_input("Bitte geben Sie das Passwort ein:", type="password")
+
+    # 3. Überprüfen
+    if not password:
+        st.stop()  # Stoppt die Ausführung, bis etwas eingegeben wird
     
-    if api_key:
-        os.environ["GOOGLE_API_KEY"] = api_key
-        if st.session_state.agent is None:
-            try:
-                st.session_state.agent = FinancialAgent()
-                st.success("✅ API Key gesetzt")
-            except Exception as e:
-                st.error(f"❌ Fehler: {str(e)}")
+    if password == correct_password:
+        return True  # Passwort korrekt, App darf starten
     else:
-        st.warning("⚠️ Bitte API Key eingeben")
-    
-    st.markdown("---")
-    
-    # Cost Info
-    st.markdown("""
-    <div class="cost-badge">
-        💰 KOSTENLOS!<br>
-        $0/Monat
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("""
-    **Limits (Free Tier):**
-    - 15 Requests/Minute
-    - 1M Tokens/Minute
-    - 1.500 Requests/Tag
-    
-    **Für normale Nutzung völlig ausreichend!**
-    """)
-    
-    st.markdown("---")
-    
-    # Example Queries
-    st.markdown("### 💡 Beispiel-Fragen")
-    
-    examples = [
-        "Analyze Apple's financial health",
-        "Compare Tesla and Ford",
-        "What's the current state of Bitcoin?",
-        "Is NVIDIA overvalued?",
-        "Analyze Microsoft's growth potential",
-        "Should I invest in Amazon?",
-        "Compare Bitcoin and Ethereum"
-    ]
-    
-    for example in examples:
-        if st.button(example, key=f"example_{example}"):
-            st.session_state.current_query = example
-    
-    st.markdown("---")
-    
-    # Clear History
-    if st.button("🗑️ Verlauf löschen"):
-        st.session_state.history = []
-        st.rerun()
-    
-    st.markdown("---")
-    
-    # Info
-    st.markdown("""
-    ### ℹ️ Info
-    
-    **Powered by:**
-    - Google Gemini 2.0 Flash
-    
-    **Datenquellen:**
-    - Yahoo Finance (Aktien)
-    - CoinGecko (Krypto)
-    
-    **Kosten:**
-    - Hosting: $0 (Streamlit Cloud)
-    - LLM: $0 (Gemini Free Tier)
-    - Daten: $0 (kostenlose APIs)
-    
-    **Total: $0/Monat** 🎉
-    
-    **Open Source:**
-    - MIT Lizenz
-    - Frei nutzbar
-    """)
+        st.error("Passwort ist falsch.")
+        return False # Passwort falsch, App stoppt
 
-# Main Content
-st.markdown('<div class="main-header">📊 Financial Research Agent</div>', unsafe_allow_html=True)
+# --- Die eigentliche App-Logik (Ihr bisheriger Code) ---
+def run_app():
+    """Führt die Finanz-Agent-App aus, NACHDEM das Passwort korrekt war."""
+    st.set_page_config(page_title="Financial Research Agent", layout="wide")
+    
+    # Der API-Key wird jetzt HIER geladen, nicht mehr in der Seitenleiste
+    try:
+        api_key_secret = st.secrets["GOOGLE_API_KEY"]
+    except KeyError:
+        st.error("Fehler: GOOGLE_API_KEY nicht in Streamlit Secrets gefunden!")
+        st.stop()
+    
+    # Seitenleiste (Sidebar)
+    with st.sidebar:
+        st.title("Einstellungen")
+        # Das alte API-Key-Feld ist jetzt weg.
+        
+        # Stattdessen können wir anzeigen, dass der Key geladen ist:
+        if api_key_secret:
+            st.success("API Key erfolgreich geladen!", icon="✅")
 
-st.markdown("""
-Stellen Sie Fragen zu Aktien, Krypto oder Märkten. Der Agent analysiert automatisch 
-die relevanten Daten und gibt Ihnen professionelle Insights - **komplett kostenlos**!
-
-**Powered by Google Gemini 2.0 Flash** 🚀
-""")
-
-# Query Input
-col1, col2 = st.columns([4, 1])
-
-with col1:
-    query = st.text_input(
-        "Ihre Frage:",
-        value=st.session_state.get('current_query', ''),
-        placeholder="z.B. Analyze Apple's financial health",
-        label_visibility="collapsed"
-    )
-
-with col2:
-    analyze_button = st.button("🔍 Analysieren", type="primary")
-
-# Clear current_query after use
-if 'current_query' in st.session_state:
-    del st.session_state.current_query
-
-# Process Query
-if (analyze_button or query) and query:
-    if not api_key:
-        st.error("⚠️ Bitte geben Sie zuerst Ihren Google API Key in der Sidebar ein!")
-        st.info("""
-        **API Key erhalten:**
-        1. Gehen Sie zu https://aistudio.google.com
-        2. Sign in mit Google Account
-        3. Klicken Sie auf "Get API Key"
-        4. Kopieren Sie den Key (beginnt mit AIza...)
+        # Badge (wie in der Anleitung)
+        st.markdown(
+            '<div style="background-color: #28a745; color: white; padding: 10px; border-radius: 5px; font-weight: bold; text-align: center;">KOSTENLOS!<br>$0/Monat</div>',
+            unsafe_allow_html=True
+        )
+        st.subheader("Limits (Free Tier):")
+        st.markdown("""
+        * 15 Requests/Minute
+        * 1M Tokens/Minute
+        * 1.500 Requests/Tag
         """)
-    else:
-        with st.spinner("🔬 Analysiere mit Google Gemini..."):
-            try:
-                # Run agent
-                analysis = st.session_state.agent.run(query)
-                
-                # Add to history
-                st.session_state.history.append({
-                    'timestamp': datetime.now(),
-                    'query': query,
-                    'analysis': analysis
-                })
-                
-                # Display result
-                st.markdown("### 📈 Analyse-Ergebnis")
-                st.markdown(analysis)
-                
-                # Success message
-                st.success("✅ Analyse abgeschlossen! (Kosten: $0)")
-                
-            except Exception as e:
-                st.error(f"❌ Fehler: {str(e)}")
-                
-                if "quota" in str(e).lower() or "rate" in str(e).lower():
-                    st.warning("""
-                    **Rate Limit erreicht!**
-                    
-                    Free Tier Limits:
-                    - 15 Requests/Minute
-                    - 1.500 Requests/Tag
-                    
-                    Bitte warten Sie kurz und versuchen Sie es erneut.
-                    """)
+        st.caption("Für normale Nutzung völlig ausreichend!")
+        
+        st.subheader("Beispiel-Fragen")
+        if st.button("Analyze Apple's financial health"):
+            st.session_state.query = "Analyze Apple's financial health"
+        if st.button("Compare Tesla and Ford"):
+            st.session_state.query = "Compare Tesla and Ford"
 
-# Display History
-if st.session_state.history:
-    st.markdown("---")
-    st.markdown("## 📜 Verlauf")
+    # Hauptseite
+    st.title("📊 Financial Research Agent")
+    st.markdown("Stellen Sie Fragen zu Aktien, Krypto oder Märkten. Der Agent analysiert automatisch die relevanten Daten und gibt Ihnen professionelle Insights – **komplett kostenlos!**")
+    st.caption("Powered by Google Gemini 2.0 Flash ⚡")
+
+    # Initialisierung des Agenten
+    try:
+        # Wir übergeben den Key, den wir aus den Secrets geholt haben
+        # HINWEIS: Ihre agent.py MUSS dies unterstützen.
+        # Ihre agent.py lädt den Key selbst
+        # Daher ist die Zeile unten auskommentiert, da agent.py es selbst macht.
+        # agent = FinancialAgent(api_key=api_key_secret) 
+        
+        # Stattdessen rufen wir es ohne Argument auf:
+        agent = FinancialAgent()
+        
+    except Exception as e:
+        st.error(f"Fehler beim Initialisieren des Agenten: {e}")
+        st.stop()
+
+    # Chat/Query-Eingabe
+    if 'query' not in st.session_state:
+        st.session_state.query = ""
+
+    query = st.text_input("Ihre Anfrage (z.B. Analyze Apple's financial health):", 
+                          value=st.session_state.query,
+                          placeholder="z.B. Analyze Apple's financial health")
     
-    for i, item in enumerate(reversed(st.session_state.history)):
-        with st.expander(
-            f"🕐 {item['timestamp'].strftime('%H:%M:%S')} - {item['query'][:50]}...",
-            expanded=(i == 0)
-        ):
-            st.markdown(f"**Frage:** {item['query']}")
-            st.markdown("**Antwort:**")
-            st.markdown(item['analysis'])
+    if st.button("Analysieren"):
+        if query:
+            with st.spinner("Agent recherchiert und analysiert... (Dies kann 10-30 Sekunden dauern)"):
+                try:
+                    # Annahme: Ihr Agent hat eine 'run' Methode
+                    response = agent.run(query) 
+                    st.success("Analyse abgeschlossen!")
+                    st.markdown(response)
+                except Exception as e:
+                    st.error(f"Ein Fehler ist aufgetreten: {e}")
+        else:
+            st.warning("Bitte geben Sie eine Anfrage ein.")
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666; font-size: 0.9rem;'>
-    Powered by Google Gemini 2.0 Flash 🚀 | Komplett kostenlos 💰<br>
-    Gebaut mit ❤️ | Open Source | MIT Lizenz<br>
-    ⚠️ Keine Finanzberatung - Konsultieren Sie einen Finanzberater
-</div>
-""", unsafe_allow_html=True)
+    # Footer
+    st.markdown("---")
+    st.caption("Gebaut mit 🤍 | Open Source | MIT Lizenz")
+    st.caption("⚠️ Keine Finanzberatung - Konsultieren Sie einen Finanzberater")
+
+
+# --- HAUPT-LOGIK ---
+
+# 1. Prüfe das Passwort
+if check_password():
+    # 2. Wenn Passwort korrekt ist, starte die Hauptanwendung
+    run_app()
 
