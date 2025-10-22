@@ -25,19 +25,16 @@ def check_password():
 def run_app():
     st.set_page_config(page_title="Financial Research Agent", layout="wide")
 
-    # --- GEÄNDERT: Logik für mehrere, benennbare Chats ---
+    # --- Logik für mehrere, benennbare Chats (Unverändert) ---
     NUM_CHATS = 10
     
-    # 1. Initialisiere 10 Chat-Objekte (Diktionäre), falls sie nicht existieren
     if "chats" not in st.session_state:
-        # Jedes Objekt speichert jetzt seinen eigenen Namen und Verlauf
         st.session_state.chats = [
             {"name": f"Chat {i+1}", "history": []} for i in range(NUM_CHATS)
         ]
     
-    # 2. Initialisiere den Index des aktiven Chats (unverändert)
     if "active_chat_index" not in st.session_state:
-        st.session_state.active_chat_index = 0 # Startet mit "Chat 1"
+        st.session_state.active_chat_index = 0
 
     # --- Seitenleiste (Sidebar) ---
     with st.sidebar:
@@ -48,38 +45,39 @@ def run_app():
         except KeyError:
             st.error("API Key nicht in Secrets gefunden!", icon="❌")
 
-        # --- GEÄNDERT: Chat-Auswahl liest jetzt custom Namen ---
         st.subheader("Meine Chats")
         
-        # Holt die *aktuellen* Namen aus der session_state Struktur
         chat_option_names = [chat["name"] for chat in st.session_state.chats]
         
-        # Zeigt die Radio-Buttons mit den custom Namen an
         selected_chat_name = st.radio(
             "Wählen Sie einen Chat:",
             options=chat_option_names,
             index=st.session_state.active_chat_index
         )
         
-        # Aktualisiere den aktiven Chat-Index basierend auf dem Namen
         st.session_state.active_chat_index = chat_option_names.index(selected_chat_name)
-
-        # --- NEU: Textfeld zum Umbenennen des AKTIVEN Chats ---
         active_chat = st.session_state.chats[st.session_state.active_chat_index]
         
         new_name = st.text_input(
             "Chat umbenennen:", 
-            value=active_chat["name"] # Zeigt den aktuellen Namen an
+            value=active_chat["name"]
         )
         
         if new_name != active_chat["name"]:
-            # Wenn der Name geändert wurde, speichere ihn
             st.session_state.chats[st.session_state.active_chat_index]["name"] = new_name
-            # Erzwinge einen Neustart des Scripts, damit die Radio-Liste aktualisiert wird
+            st.rerun()
+            
+        # --- NEU: "Chat löschen"-Button ---
+        st.markdown("---")
+        if st.button("Aktuellen Chat löschen", type="primary"):
+            # Setzt den Verlauf des aktiven Chats zurück
+            st.session_state.chats[st.session_state.active_chat_index]["history"] = []
+            # Setzt optional den Namen zurück
+            st.session_state.chats[st.session_state.active_chat_index]["name"] = f"Chat {st.session_state.active_chat_index + 1}"
             st.rerun()
 
         # --- (Rest der Sidebar, unverändert) ---
-        st.markdown("---") # Trennlinie
+        st.markdown("---") 
         st.markdown(
             '<div style="background-color: #28a745; color: white; padding: 10px; border-radius: 5px; font-weight: bold; text-align: center;">KOSTENLOS!<br>$0/Monat</div>',
             unsafe_allow_html=True
@@ -93,6 +91,7 @@ def run_app():
 
     # --- Agent initialisieren (Unverändert) ---
     try:
+        # Initialisiert den Agenten (der jetzt die Suchfunktion hat)
         agent = FinancialAgent()
     except Exception as e:
         st.error(f"Fehler beim Initialisieren des Agenten (Prüfen Sie den API Key): {e}")
@@ -100,36 +99,27 @@ def run_app():
 
     # --- HAUPTSEITE (Titel) ---
     st.title("📊 Financial Research Agent")
-    # --- GEÄNDERT: Zeigt jetzt den custom Namen an ---
     st.caption(f"Aktuell in: **{st.session_state.chats[st.session_state.active_chat_index]['name']}** | ⚠️ Keine Finanzberatung")
 
-    # --- GEÄNDERT: Angepasste Chat-Logik ---
-
-    # 1. Holt den Verlauf für den *aktuell ausgewählten* Chat
+    # --- Chat-Logik (Unverändert) ---
     current_chat_history = st.session_state.chats[st.session_state.active_chat_index]["history"]
 
-    # 2. Zeige alle bisherigen Nachrichten DIESES Chats an (unverändert)
     for message in current_chat_history:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # 3. Neue Chat-Eingabe (unten fixiert)
     if query := st.chat_input("Stellen Sie Ihre Finanzfrage..."):
         
-        # 4. Zeige die User-Nachricht an und speichere sie im AKTIVEN Chat
+        current_chat_history.append({"role": "user", "content": query})
         with st.chat_message("user"):
             st.markdown(query)
-        # --- GEÄNDERT: Speichert im "history"-Teil des Chat-Objekts ---
-        current_chat_history.append({"role": "user", "content": query})
 
-        # 5. Rufe den Agenten auf und zeige die Antwort an
         with st.chat_message("assistant"):
-            with st.spinner("Agent recherchiert und analysiert..."):
+            with st.spinner("Agent recherchiert, sucht im Web und analysiert..."):
                 try:
+                    # Ruft die 'run'-Funktion auf, die jetzt auch googeln kann
                     response = agent.run(query) 
                     st.markdown(response)
-                    # 6. Speichere die Agenten-Antwort im AKTIVEN Chat
-                    # --- GEÄNDERT: Speichert im "history"-Teil des Chat-Objekts ---
                     current_chat_history.append({"role": "assistant", "content": response})
                 except Exception as e:
                     error_msg = f"Ein Fehler ist aufgetreten: {e}"
