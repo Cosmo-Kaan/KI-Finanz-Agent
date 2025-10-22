@@ -67,7 +67,7 @@ def run_app():
             st.session_state.chats[st.session_state.active_chat_index]["name"] = new_name
             st.rerun()
             
-        # --- NEU: "Chat löschen"-Button ---
+        # --- "Chat löschen"-Button ---
         st.markdown("---")
         if st.button("Aktuellen Chat löschen", type="primary"):
             # Setzt den Verlauf des aktiven Chats zurück
@@ -91,7 +91,7 @@ def run_app():
 
     # --- Agent initialisieren (Unverändert) ---
     try:
-        # Initialisiert den Agenten (der jetzt die Suchfunktion hat)
+        # Initialisiert den Agenten (der jetzt 'gemini-2.5-flash' verwendet)
         agent = FinancialAgent()
     except Exception as e:
         st.error(f"Fehler beim Initialisieren des Agenten (Prüfen Sie den API Key): {e}")
