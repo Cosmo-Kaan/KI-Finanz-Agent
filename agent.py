@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Financial Research Agent - Optimiert für Google Gemini Flash
-FINALE VERSION: Mit TAVILY Web-Suche und regelbasiertem Planer
+VERSION: Hedgefonds-Analyst (gibt Empfehlungen)
 """
 
 import os
@@ -10,7 +10,6 @@ import requests
 from typing import Dict, List
 import yfinance as yf
 import google.generativeai as genai
-# --- GEÄNDERT: Von DDGS zu Tavily ---
 from tavily import TavilyClient
 
 class FinancialAgent:
@@ -18,7 +17,7 @@ class FinancialAgent:
     Financial Research Agent powered by Google Gemini Flash
     """
     
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-2.5-flash"): # Verwendet das Modell aus Ihrem AI Studio
         # Google Gemini API Key
         google_api_key = os.getenv("GOOGLE_API_KEY")
         if not google_api_key:
@@ -32,12 +31,11 @@ class FinancialAgent:
         
         self.model_name = model
         self.model = genai.GenerativeModel(model)
-        # --- GEÄNDERT: Initialisiert den Tavily Client ---
+        # Initialisiert den Tavily Client
         self.search_tool = TavilyClient(api_key=tavily_api_key)
         
         print(f"✅ Agent initialized with Google Gemini ({model}) and Tavily Search")
     
-    # --- GEÄNDERT: Verwendet jetzt Tavily für die Suche ---
     def search_web(self, query: str) -> List[Dict]:
         """Führt eine Web-Suche mit Tavily durch."""
         
@@ -51,16 +49,12 @@ class FinancialAgent:
         print(f"🔍 Searching Tavily for (cleaned): {clean_query}")
         
         try:
-            # Tavily liefert eine saubere JSON-Antwort
             response = self.search_tool.search(query=clean_query, search_depth="basic", max_results=5)
-            # Wir formatieren die Ergebnisse so, dass sie wie die alten DDGS-Ergebnisse aussehen
             results = [{"snippet": r["content"], "source": r["url"]} for r in response.get("results", [])]
             return results if results else [{"snippet": "Keine Suchergebnisse gefunden."}]
         except Exception as e:
             print(f"❌ Tavily search failed: {e}")
             return [{"error": f"Fehler bei der Tavily-Suche: {str(e)}"}]
-
-    # --- (Alle anderen Funktionen: get_stock_data, get_crypto_data, get_economic_indicators, analyze_with_gemini, execute_step, run SIND UNVERÄNDERT) ---
 
     def get_stock_data(self, ticker: str, period: str = "1y") -> Dict:
         """Holt Aktiendaten von Yahoo Finance"""
@@ -173,19 +167,23 @@ class FinancialAgent:
         except Exception as e:
             return {"error": f"Failed to fetch economic indicators: {str(e)}"}
 
+    # --- HIER IST DIE ÄNDERUNG ---
     def analyze_with_gemini(self, query: str, data: Dict) -> str:
         """Nutzt Gemini für intelligente Analyse"""
         
-        system_instruction = """Du bist ein präziser Finanzdaten-Analyst.
-        Deine Aufgabe:
-        1. Analysiere AUSSCHLIESSLICH die bereitgestellten JSON-Daten (von APIs oder Web-Suche).
-        2. Beantworte die Frage des Nutzers präzise.
-        3. Verwende NUR Zahlen und Fakten aus den Daten. Gib die Quelle an (z.B. "Laut CoinGecko...", "Laut Tavily Web-Suche...").
+        # NEUER "Hedgefonds-Analyst" Prompt
+        system_instruction = """Du bist ein professioneller Krypto- und Aktien-Analyst.
+        Deine Aufgabe ist es, basierend auf den gelieferten Daten (Web-Suche, Marktdaten) eine fundierte, handlungsorientierte Empfehlung abzugeben.
+        
+        DEINE AUFGABE:
+        1. Analysiere die Daten auf Chancen und Risiken.
+        2. Gib eine klare Einschätzung (z.B. "Bullisch", "Bärisch", "Neutral").
+        3. Gib konkrete, umsetzbare Optionen (z.B. "Ein Kauf unter $X könnte sinnvoll sein", "Dieses Protokoll scheint ein höheres Risiko als Protokoll Y zu haben").
+        4. Begründe deine Empfehlung AUSSCHLIESSLICH mit den gelieferten Daten.
+        
         WICHTIGE REGELN:
         - ERFINDE NIEMALS Daten.
-        - Wenn eine Information nicht in den Daten enthalten ist, sage klar: "Ich habe keine Daten zu [Thema]."
-        - Wenn Daten Währungs-Suffixe haben (z.B. 'current_price_eur'), verwende diese.
-        - Dies ist KEINE Finanzberatung. Weise am Ende immer darauf hin.
+        - Gib immer die Quelle an ("Laut Tavily...", "Laut CoinGecko...").
         """
         
         user_prompt = f"""
@@ -207,6 +205,7 @@ class FinancialAgent:
         except Exception as e:
             return f"Error generating analysis: {str(e)}"
     
+    
     def execute_step(self, step: Dict) -> Dict:
         """Führt einen Research-Schritt aus"""
         action = step.get("action")
@@ -225,6 +224,7 @@ class FinancialAgent:
         else:
             return {"error": f"Unknown action: {action}"}
     
+    # --- 'run' Funktion mit regelbasierter Logik (unverändert) ---
     def run(self, query: str) -> str:
         """Hauptfunktion: Führt die komplette Analyse durch (OHNE Planungs-KI)"""
         print(f"\n{'='*80}\n❓ Query: {query}\n")
