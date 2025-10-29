@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import streamlit as st
-# Annahme: Dein Agenten-Code ist immer noch in 'agent.py'
 from agent import FinancialAgent 
 import google.oauth2.service_account
 from google.cloud import firestore
 import json
 
-# --- Firestore Initialisierung ---
+# --- Firestore Initialisierung (unverändert) ---
 try:
     key_dict = {
         "type": "service_account",
@@ -22,12 +21,10 @@ try:
     }
     credentials = google.oauth2.service_account.Credentials.from_service_account_info(key_dict)
     
-    # --- HIER IST DIE KORREKTUR ---
     db = firestore.Client(
         credentials=credentials,
-        database="finanz-agent-db"  # <-- Sagt dem Client, welche DB er nutzen soll
+        database="finanz-agent-db"  # Wichtig: Die korrekte DB-ID
     )
-    # --- ENDE DER KORREKTUR ---
 
     st.sidebar.success("Firestore verbunden!", icon="🔥") 
 except Exception as e:
@@ -49,15 +46,20 @@ def check_password():
     st.error("Passwort ist falsch.")
     return False
 
-# --- Datenbank-Funktionen (Unverändert) ---
+# --- Datenbank-Funktionen ---
 USER_ID = "default_user" 
 NUM_CHATS = 10
 
+# --- HIER IST DIE KORREKTUR ---
 @st.cache_resource
 def load_chats_from_db():
+    """Lädt Chats aus Firestore. Erstellt initiale Struktur, falls nicht vorhanden."""
     print("Lade Chats aus Firestore...")
     user_doc_ref = db.collection("users").document(USER_ID)
-    chats_ref = user_doc_ref.collection("chats").order_by("index")
+    
+    # KORREKTUR: Trennung von Sammlungs-Referenz (zum Schreiben) und Query (zum Lesen)
+    chats_collection_ref = user_doc_ref.collection("chats") # Die Sammlung
+    chats_query = chats_collection_ref.order_by("index")    # Die sortierte Suchanfrage
     
     chats = [None] * NUM_CHATS
     found_chats = False
@@ -69,14 +71,16 @@ def load_chats_from_db():
         batch = db.batch()
         batch.set(user_doc_ref, {}) 
         for i, chat in enumerate(chats):
-            doc_ref = chats_ref.document(f"chat_{i}") 
+            # KORREKTUR: .document() auf der Sammlungs-Referenz aufrufen
+            doc_ref = chats_collection_ref.document(f"chat_{i}") 
             batch.set(doc_ref, chat)
         batch.commit()
         print("Initiale Struktur erstellt.")
         return chats 
     else:
         print(f"Nutzer-Dokument '{USER_ID}' gefunden. Lese Chats...")
-        for doc in chats_ref.stream():
+        # KORREKTUR: .stream() auf der Query aufrufen
+        for doc in chats_query.stream(): 
             chat_data = doc.to_dict()
             chat_index = chat_data.get("index")
             if chat_index is not None and 0 <= chat_index < NUM_CHATS:
@@ -90,7 +94,8 @@ def load_chats_from_db():
             chats = [{"name": f"Chat {i+1}", "history": [], "index": i} for i in range(NUM_CHATS)]
             batch = db.batch()
             for i, chat in enumerate(chats):
-                doc_ref = chats_ref.document(f"chat_{i}")
+                # KORREKTUR: .document() auf der Sammlungs-Referenz aufrufen
+                doc_ref = chats_collection_ref.document(f"chat_{i}")
                 batch.set(doc_ref, chat)
             batch.commit()
             print("Initiale Chats erstellt.")
@@ -101,18 +106,22 @@ def load_chats_from_db():
             print("Chats erfolgreich geladen.")
 
     return chats
+# --- ENDE DER KORREKTUR ---
 
 def save_chat_to_db(chat_index, chat_data):
+    """Speichert ein einzelnes Chat-Objekt (Name und Verlauf) in Firestore."""
     print(f"Speichere Chat {chat_index} in Firestore...")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.set(chat_data, merge=True) 
 
 def save_chat_name_to_db(chat_index, new_name):
+    """Speichert nur den neuen Namen eines Chats in Firestore."""
     print(f"Speichere neuen Namen für Chat {chat_index}: {new_name}")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.update({"name": new_name})
 
 def delete_chat_history_in_db(chat_index):
+    """Löscht nur den Verlauf ('history') eines Chats in Firestore."""
     print(f"Lösche Verlauf von Chat {chat_index}...")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.update({"history": []})
