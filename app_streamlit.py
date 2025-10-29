@@ -21,7 +21,14 @@ try:
         "client_x509_cert_url": st.secrets["FIRESTORE_CLIENT_CERT_URL"]
     }
     credentials = google.oauth2.service_account.Credentials.from_service_account_info(key_dict)
-    db = firestore.Client(credentials=credentials)
+    
+    # --- HIER IST DIE KORREKTUR ---
+    db = firestore.Client(
+        credentials=credentials,
+        database="finanz-agent-db"  # <-- Sagt dem Client, welche DB er nutzen soll
+    )
+    # --- ENDE DER KORREKTUR ---
+
     st.sidebar.success("Firestore verbunden!", icon="🔥") 
 except Exception as e:
     st.error(f"Fehler bei Firestore-Verbindung (Prüfe Secrets!): {e}") 
@@ -42,14 +49,12 @@ def check_password():
     st.error("Passwort ist falsch.")
     return False
 
-# --- Datenbank-Funktionen ---
+# --- Datenbank-Funktionen (Unverändert) ---
 USER_ID = "default_user" 
 NUM_CHATS = 10
 
-# --- HIER IST DIE ÄNDERUNG ---
-@st.cache_resource # Cache die Funktion
+@st.cache_resource
 def load_chats_from_db():
-    """Lädt Chats aus Firestore. Erstellt initiale Struktur, falls nicht vorhanden."""
     print("Lade Chats aus Firestore...")
     user_doc_ref = db.collection("users").document(USER_ID)
     chats_ref = user_doc_ref.collection("chats").order_by("index")
@@ -57,24 +62,19 @@ def load_chats_from_db():
     chats = [None] * NUM_CHATS
     found_chats = False
 
-    # NEU: Prüfen, ob das Nutzer-Dokument existiert, bevor wir lesen
     user_doc = user_doc_ref.get()
     if not user_doc.exists:
         print(f"Nutzer-Dokument '{USER_ID}' existiert nicht. Erstelle initiale Struktur...")
-        # Erstelle leere Chats
         chats = [{"name": f"Chat {i+1}", "history": [], "index": i} for i in range(NUM_CHATS)]
-        # Speichere die initialen leeren Chats in der DB
         batch = db.batch()
-        # Erstelle das (leere) Nutzerdokument, damit die Sammlung erstellt werden kann
         batch.set(user_doc_ref, {}) 
         for i, chat in enumerate(chats):
-            doc_ref = chats_ref.document(f"chat_{i}") # Pfad zur Untersammlung
+            doc_ref = chats_ref.document(f"chat_{i}") 
             batch.set(doc_ref, chat)
         batch.commit()
         print("Initiale Struktur erstellt.")
-        return chats # Gibt die frisch erstellten Chats zurück
+        return chats 
     else:
-        # Nutzer-Dokument existiert, versuche Chats zu lesen
         print(f"Nutzer-Dokument '{USER_ID}' gefunden. Lese Chats...")
         for doc in chats_ref.stream():
             chat_data = doc.to_dict()
@@ -85,7 +85,6 @@ def load_chats_from_db():
                 chats[chat_index] = chat_data 
                 found_chats = True
 
-        # Wenn das Nutzer-Dokument existiert, aber keine Chat-Dokumente gefunden wurden
         if not found_chats:
             print("Nutzer-Dokument existiert, aber keine Chats gefunden. Erstelle initiale Chats...")
             chats = [{"name": f"Chat {i+1}", "history": [], "index": i} for i in range(NUM_CHATS)]
@@ -96,33 +95,24 @@ def load_chats_from_db():
             batch.commit()
             print("Initiale Chats erstellt.")
         else:
-             # Fülle eventuell fehlende Slots auf
             for i in range(NUM_CHATS):
                 if chats[i] is None:
                     chats[i] = {"name": f"Chat {i+1}", "history": [], "index": i}
-                    # Optional: Fehlenden Chat auch in DB speichern
-                    # doc_ref = chats_ref.document(f"chat_{i}")
-                    # doc_ref.set(chats[i])
             print("Chats erfolgreich geladen.")
 
     return chats
-# --- ENDE DER ÄNDERUNG ---
 
-# (Restliche DB-Funktionen save_chat_to_db etc. bleiben unverändert)
 def save_chat_to_db(chat_index, chat_data):
-    """Speichert ein einzelnes Chat-Objekt (Name und Verlauf) in Firestore."""
     print(f"Speichere Chat {chat_index} in Firestore...")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.set(chat_data, merge=True) 
 
 def save_chat_name_to_db(chat_index, new_name):
-    """Speichert nur den neuen Namen eines Chats in Firestore."""
     print(f"Speichere neuen Namen für Chat {chat_index}: {new_name}")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.update({"name": new_name})
 
 def delete_chat_history_in_db(chat_index):
-    """Löscht nur den Verlauf ('history') eines Chats in Firestore."""
     print(f"Lösche Verlauf von Chat {chat_index}...")
     doc_ref = db.collection("users").document(USER_ID).collection("chats").document(f"chat_{chat_index}")
     doc_ref.update({"history": []})
