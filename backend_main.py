@@ -101,5 +101,6 @@ def run_analysis():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # --- Startet den Server ---
-if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+# if __name__ == "__main__":
+#    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+# Gunicorn startet die 'app' jetzt direkt, dieser Block wird nicht mehr benötigt.
