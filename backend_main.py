@@ -43,9 +43,10 @@ try:
     # Initialisiere deinen Analysten-Agenten
     # (agent.py nutzt auch os.getenv() für GOOGLE_API_KEY und TAVILY_API_KEY)
     analyst = FinancialAgent()
+    print("✅ Agent und Firestore erfolgreich initialisiert.")
 
 except Exception as e:
-    print(f"Fehler bei der Initialisierung: {e}")
+    print(f"❌ Fehler bei der Initialisierung: {e}")
     # Beende die App nicht, damit wir den Fehler im Log sehen können
     analyst = None 
     db = None
@@ -64,11 +65,11 @@ def run_analysis():
     # Überprüft, ob der "Wecker" den richtigen geheimen Token mitschickt
     request_token = request.headers.get('Authorization')
     if request_token != f"Bearer {AUTH_TOKEN}":
-        print("Fehler: Ungültiger oder fehlender Auth-Token.")
+        print(f"❌ Fehler: Ungültiger Auth-Token. Erhalten: {request_token}")
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
 
     if not analyst or not db:
-        print("Fehler: Agent oder DB wurden nicht initialisiert.")
+        print("❌ Fehler: Agent oder DB wurden nicht initialisiert.")
         return jsonify({"status": "error", "message": "Agent not initialized"}), 500
 
     print("Auth-Token korrekt. Starte autonome Analyse...")
@@ -92,11 +93,11 @@ def run_analysis():
         # Fügt ein neues Dokument hinzu, Firestore generiert die ID
         doc_ref = db.collection("reports").add(report_data)
 
-        print(f"Bericht erfolgreich erstellt und in Firestore gespeichert: {doc_ref[1].id}")
+        print(f"✅ Bericht erfolgreich erstellt und in Firestore gespeichert: {doc_ref[1].id}")
         return jsonify({"status": "success", "report_id": doc_ref[1].id}), 200
 
     except Exception as e:
-        print(f"Fehler während der Analyse-Ausführung: {e}")
+        print(f"❌ Fehler während der Analyse-Ausführung: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # --- Startet den Server ---
