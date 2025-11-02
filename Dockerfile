@@ -29,4 +29,5 @@ EXPOSE 8080
 # 7. Startbefehl
 # Dieser Befehl startet deinen Flask-Server (den "Motor"),
 # NICHT die Streamlit-App.
-CMD ["python", "backend_main.py"]
+# Startet den Server mit 4 Workern auf Port 8080 und zielt auf das 'app'-Objekt in der 'backend_main.py'-Datei
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8080", "backend_main:app"]
