@@ -30,4 +30,5 @@ EXPOSE 8080
 # Dieser Befehl startet deinen Flask-Server (den "Motor"),
 # NICHT die Streamlit-App.
 # Startet den Server mit 4 Workern auf Port 8080 und zielt auf das 'app'-Objekt in der 'backend_main.py'-Datei
-CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8080", "backend_main:app"]
+# Fügt Log-Flags hinzu: --log-level=debug (mehr Details) und --access-logfile=- / --error-logfile=- (leitet alle Logs an die Konsole/stderr um)
+CMD ["gunicorn", "--workers", "4", "--bind", "0.0.0.0:8080", "--log-level=debug", "--access-logfile=-", "--error-logfile=-", "backend_main:app"]
