@@ -1,332 +1,137 @@
-#!/usr/bin/env python3
-"""
-Autonomer Finanz-Analyst ("Motor")
-Basierend auf der Logik von daily_crypto_agent.py,
-umgebaut für Google Cloud Run, Gemini und Firestore.
-"""
-
 import os
-import json
-import requests
-import time
-from datetime import datetime
-import google.oauth2.service_account
-from google.cloud import firestore
+import sys
+import traceback
 from flask import Flask, request, jsonify
+from datetime import datetime
 import google.generativeai as genai
+from tavily import TavilyClient
+from google.cloud import firestore
 
-# --- Initialisierung ---
+# --- 1. Konfiguration und Initialisierung ---
 
+# Flask-App initialisieren
 app = Flask(__name__)
-db = None
-gemini_model = None
-analyzer = None
-AUTH_TOKEN = None
 
-# Logik aus daily_crypto_agent.py, angepasst als Klasse
-class CryptoMarketAnalyzer:
-    def __init__(self, gemini_model_client):
-        self.base_url = "https://api.coingecko.com/api/v3"
-        self.headers = {"accept": "application/json"}
-        # KI-Modell (Gemini) wird von außen übergeben
-        self.model = gemini_model_client
-        print("✅ CryptoMarketAnalyzer initialisiert.")
-        
-    def rate_limit_pause(self):
-        """Pause, um CoinGecko API-Limit nicht zu überschreiten."""
-        time.sleep(1.2) # 1.2 Sekunden zur Sicherheit
-    
-    def get_global_data(self):
-        """Globale Marktstatistiken abrufen."""
-        try:
-            response = requests.get(f"{self.base_url}/global", headers=self.headers)
-            response.raise_for_status()
-            return response.json()['data']
-        except Exception as e:
-            print(f"Fehler beim Abrufen globaler Daten: {e}")
-            return None
-    
-    def get_top_coins(self, limit=100):
-        """Top Coins nach Market Cap abrufen."""
-        try:
-            params = {
-                'vs_currency': 'usd', 'order': 'market_cap_desc',
-                'per_page': limit, 'page': 1, 'sparkline': False,
-                'price_change_percentage': '24h,7d'
-            }
-            response = requests.get(f"{self.base_url}/coins/markets", 
-                                  headers=self.headers, params=params)
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            print(f"Fehler beim Abrufen der Top Coins: {e}")
-            return []
-    
-    def get_trending_coins(self):
-        """Trending Coins identifizieren."""
-        try:
-            response = requests.get(f"{self.base_url}/search/trending", 
-                                  headers=self.headers)
-            response.raise_for_status()
-            return response.json()['coins']
-        except Exception as e:
-            print(f"Fehler beim Abrufen der Trending Coins: {e}")
-            return []
-    
-    def analyze_sentiment(self, coins):
-        """Sentiment-Analyse basierend auf 24h Performance."""
-        if not coins: return {'sentiment': 'Unbekannt', 'positive_count': 0, 'negative_count': 0, 'avg_change': 0}
-        
-        positive = [c for c in coins if c.get('price_change_percentage_24h', 0) > 0]
-        negative = [c for c in coins if c.get('price_change_percentage_24h', 0) <= 0]
-        
-        avg_change = sum(c.get('price_change_percentage_24h', 0) for c in coins) / len(coins)
-        
-        if avg_change > 2: sentiment = "Stark Bullish"
-        elif avg_change > 0: sentiment = "Bullish"
-        elif avg_change > -2: sentiment = "Bearish"
-        else: sentiment = "Stark Bearish"
-        
-        return {
-            'sentiment': sentiment, 'positive_count': len(positive),
-            'negative_count': len(negative), 'avg_change': avg_change
-        }
-    
-    def find_low_cap_gems(self, coins):
-        """Low-Cap Gems finden."""
-        gems = []
-        for coin in coins:
-            market_cap = coin.get('market_cap', 0)
-            price_change_24h = coin.get('price_change_percentage_24h', 0)
-            
-            if 10_000_000 <= market_cap <= 100_000_000 and price_change_24h > 5:
-                gems.append({
-                    'name': coin['name'], 'symbol': coin['symbol'].upper(),
-                    'price': coin['current_price'], 'market_cap': market_cap,
-                    'change_24h': price_change_24h, 'volume': coin.get('total_volume', 0)
-                })
-        return sorted(gems, key=lambda x: x['change_24h'], reverse=True)[:5]
-    
-    def generate_ai_analysis(self, market_data):
-        """KI-Analyse mit Google Gemini generieren."""
-        # Baut den Prompt aus der daily_crypto_agent.py-Logik
-        prompt = f"""Als Krypto-Marktanalyst, analysiere die folgenden aktuellen Marktdaten und erstelle eine umfassende Analyse:
+# Umgebungsvariablen laden (wird von Cloud Run bereitgestellt)
+# Wir brauchen den AUTH_TOKEN hier nicht mehr.
+GEMINI_API_KEY = os.environ.get('GOOGLE_API_KEY')
+TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY')
 
-GLOBALE MARKTDATEN:
-- Gesamte Market Cap: ${market_data['global']['total_market_cap']:,.0f}
-- 24h Volumen: ${market_data['global']['total_volume']:,.0f}
-- Bitcoin Dominanz: {market_data['global']['btc_dominance']:.2f}%
-- Ethereum Dominanz: {market_data['global']['eth_dominance']:.2f}%
-
-MARKT SENTIMENT:
-- {market_data['sentiment']['sentiment']}
-- Positive Coins: {market_data['sentiment']['positive_count']}
-- Negative Coins: {market_data['sentiment']['negative_count']}
-- Durchschnittliche 24h Veränderung: {market_data['sentiment']['avg_change']:.2f}%
-
-TOP 3 COINS:
-{json.dumps(market_data['top_3'], indent=2)}
-
-TOP 5 GEWINNER:
-{json.dumps(market_data['winners'], indent=2)}
-
-TOP 5 VERLIERER:
-{json.dumps(market_data['losers'], indent=2)}
-
-Erstelle eine strukturierte Analyse mit folgenden Abschnitten:
-1. MARKTLAGE-ZUSAMMENFASSUNG (2-3 Sätze)
-2. HAUPTBEWEGUNGEN (wichtigste Entwicklungen)
-3. BITCOIN & ETHEREUM TECHNISCHE ANALYSE (Support/Resistance Levels)
-4. ALTCOIN-MARKT ÜBERSICHT
-5. RISIKOFAKTOREN (3-5 Punkte)
-6. CHANCEN (3-5 Punkte)
-7. KURZFRISTIGE PROGNOSE (1-3 Tage)
-8. MITTELFRISTIGE PROGNOSE (1-2 Wochen)
-9. HANDLUNGSEMPFEHLUNGEN:
-   - Für konservative Anleger
-   - Für moderate Risiko-Anleger
-   - Für aggressive Trader
-
-Sei konkret, nutze die Zahlen aus den Daten, und kommuniziere Risiken transparent. Dies ist keine Finanzberatung, sondern eine informative Analyse."""
-
-        try:
-            # Verwendet Gemini statt OpenAI
-            response = self.model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            print(f"Fehler bei der KI-Analyse: {e}")
-            return "KI-Analyse konnte nicht generiert werden."
-    
-    def format_number(self, num):
-        """Zahlen formatieren"""
-        if num >= 1_000_000_000: return f"${num/1_000_000_000:.2f}B"
-        elif num >= 1_000_000: return f"${num/1_000_000:.2f}M"
-        elif num >= 1_000: return f"${num/1_000:.2f}K"
-        else: return f"${num:.2f}"
-    
-    def create_report_text(self, global_data, top_coins, trending, sentiment, gems, ai_analysis):
-        """Report-Text formatieren (Code von daily_crypto_agent.py übernommen)"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
-        report = f"{'='*80}\nCRYPTO-MARKTANALYSE - TÄGLICHER REPORT\n{'='*80}\n"
-        report += f"Generiert am: {timestamp}\nDatenquelle: CoinGecko API\nKI-Analyse: Google Gemini\n{'='*80}\n\n"
-        
-        report += f"{'='*80}\n1. GLOBALE MARKTÜBERSICHT\n{'='*80}\n"
-        report += f"Gesamte Market Cap:        {self.format_number(global_data['total_market_cap']['usd'])}\n"
-        report += f"24h Handelsvolumen:        {self.format_number(global_data['total_volume']['usd'])}\n"
-        report += f"Bitcoin Dominanz:          {global_data['market_cap_percentage']['btc']:.2f}%\n"
-        report += f"Ethereum Dominanz:         {global_data['market_cap_percentage']['eth']:.2f}%\n"
-        report += f"Aktive Kryptowährungen:   {global_data['active_cryptocurrencies']:,}\n\n"
-        
-        report += f"{'='*80}\n2. MARKT-SENTIMENT\n{'='*80}\n"
-        report += f"Aktuelles Sentiment:       {sentiment['sentiment']}\n"
-        report += f"Durchschnittliche Änderung: {sentiment['avg_change']:.2f}%\n\n"
-
-        report += f"{'='*80}\n3. TOP 10 CRYPTOCURRENCIES\n{'='*80}\n"
-        for i, coin in enumerate(top_coins[:10], 1):
-            change_24h = coin.get('price_change_percentage_24h', 0)
-            change_symbol = "📈" if change_24h > 0 else "📉"
-            report += f"{i:2d}. {coin['name']} ({coin['symbol'].upper()})\n"
-            report += f"    Preis: ${coin['current_price']:,.8f}\n    24h Änderung: {change_symbol} {change_24h:+.2f}%\n"
-            report += f"    Market Cap: {self.format_number(coin['market_cap'])}\n\n"
-        
-        report += f"{'='*80}\n4. TOP 5 GEWINNER (24h)\n{'='*80}\n"
-        winners = sorted(top_coins, key=lambda x: x.get('price_change_percentage_24h', 0), reverse=True)[:5]
-        for i, coin in enumerate(winners, 1):
-            report += f"{i}. {coin['name']} ({coin['symbol'].upper()}): +{coin['price_change_percentage_24h']:.2f}%\n"
-        
-        report += f"\n{'='*80}\n5. TOP 5 VERLIERER (24h)\n{'='*80}\n"
-        losers = sorted(top_coins, key=lambda x: x.get('price_change_percentage_24h', 0))[:5]
-        for i, coin in enumerate(losers, 1):
-            report += f"{i}. {coin['name']} ({coin['symbol'].upper()}): {coin['price_change_percentage_24h']:.2f}%\n"
-        
-        report += f"\n{'='*80}\n6. KI-GESTÜTZTE MARKTANALYSE\n{'='*80}\n\n{ai_analysis}\n"
-        
-        report += f"\n{'='*80}\n7. TRENDING COINS (Potenzielle Geheimtipps)\n{'='*80}\n"
-        for i, item in enumerate(trending[:7], 1):
-            coin = item['item']
-            report += f"{i}. {coin['name']} ({coin['symbol'].upper()}) - Rank: #{coin.get('market_cap_rank', 'N/A')}\n"
-
-        report += f"\n{'='*80}\nDISCLAIMER\n{'='*80}\n"
-        report += "Dieser Report dient ausschließlich zu Informationszwecken und stellt keine Finanzberatung dar...\n"
-        
-        return report
-
-    def generate_full_report(self):
-        """Hauptfunktion: Kompletten Report generieren (wie in main() von daily_crypto_agent.py)"""
-        print("🚀 Starte Crypto-Marktanalyse...")
-        
-        print("📊 Rufe globale Marktdaten ab...")
-        global_data = self.get_global_data()
-        if not global_data: return "Fehler: Globale Daten konnten nicht abgerufen werden."
-        self.rate_limit_pause()
-        
-        print("💰 Rufe Top 100 Coins ab...")
-        top_coins = self.get_top_coins(100)
-        self.rate_limit_pause()
-        
-        print("🔥 Rufe Trending Coins ab...")
-        trending = self.get_trending_coins()
-        self.rate_limit_pause()
-        
-        print("📈 Führe Sentiment-Analyse durch...")
-        sentiment = self.analyze_sentiment(top_coins)
-        
-        print("💎 Suche Low-Cap Gems...")
-        gems = self.find_low_cap_gems(top_coins)
-        
-        print("🤖 Generiere KI-Analyse...")
-        market_data = {
-            'global': {
-                'total_market_cap': global_data['total_market_cap']['usd'],
-                'total_volume': global_data['total_volume']['usd'],
-                'btc_dominance': global_data['market_cap_percentage']['btc'],
-                'eth_dominance': global_data['market_cap_percentage']['eth']
-            },
-            'sentiment': sentiment,
-            'top_3': [{'name': c['name'], 'symbol': c['symbol'].upper(), 'price': c['current_price'], 'change_24h': c['price_change_percentage_24h'], 'market_cap': c['market_cap']} for c in top_coins[:3]],
-            'winners': [{'name': c['name'], 'symbol': c['symbol'].upper(), 'change_24h': c['price_change_percentage_24h']} for c in sorted(top_coins, key=lambda x: x.get('price_change_percentage_24h', 0), reverse=True)[:5]],
-            'losers': [{'name': c['name'], 'symbol': c['symbol'].upper(), 'change_24h': c['price_change_percentage_24h']} for c in sorted(top_coins, key=lambda x: x.get('price_change_percentage_24h', 0))[:5]]
-        }
-        
-        ai_analysis = self.generate_ai_analysis(market_data)
-        
-        print("📝 Erstelle Report...")
-        report = self.create_report_text(global_data, top_coins, trending, sentiment, gems, ai_analysis)
-        
-        print(f"✅ Report-Generierung abgeschlossen.")
-        return report
-
-# --- Globale Initialisierung beim Start des Cloud Run Containers ---
+# Firestore-Client initialisieren
+# Die Umgebungsvariablen für das Service Account (FIRESTORE_...) 
+# werden von der Google Cloud-Umgebung automatisch erkannt,
+# wenn sie als Secrets bereitgestellt werden.
+# Wir müssen den Client nur "nackt" initialisieren.
 try:
-    print("Initialisiere Agenten-Motor...")
-    AUTH_TOKEN = os.getenv("AUTH_TOKEN")
-    if not AUTH_TOKEN:
-        raise ValueError("AUTH_TOKEN nicht in Umgebungsvariablen gefunden!")
-
-    # Firestore-Client
-    key_dict = {
-        "type": "service_account",
-        "project_id": os.getenv("FIRESTORE_PROJECT_ID"),
-        "private_key_id": os.getenv("FIRESTORE_PRIVATE_KEY_ID"),
-        "private_key": os.getenv("FIRESTORE_PRIVATE_KEY").replace('\\n', '\n'),
-        "client_email": os.getenv("FIRESTORE_CLIENT_EMAIL"),
-        "client_id": os.getenv("FIRESTORE_CLIENT_ID"),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": os.getenv("FIRESTORE_CLIENT_CERT_URL")
-    }
-    credentials = google.oauth2.service_account.Credentials.from_service_account_info(key_dict)
-    db = firestore.Client(credentials=credentials, database="finanz-agent-db")
-    
-    # Gemini-Client
-    genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-    gemini_model = genai.GenerativeModel("gemini-2.5-flash") # Oder dein verfügbares Modell
-    
-    # Analyse-Agent
-    analyzer = CryptoMarketAnalyzer(gemini_model_client=gemini_model)
-    
-    print("✅ Agenten-Motor erfolgreich initialisiert.")
-
+    db = firestore.Client()
+    print("✅ Firestore-Client erfolgreich initialisiert.")
 except Exception as e:
-    print(f"❌ Kritischer Fehler bei der Initialisierung: {e}")
-    db = None
-    analyzer = None
+    print(f"❌ SCHWERER FEHLER: Firestore-Client konnte nicht initialisiert werden: {e}")
+    # Beende die Anwendung, wenn die DB nicht läuft
+    sys.exit(f"Anwendung kann nicht ohne Firestore-Verbindung starten: {e}")
 
-# --- Der "Wecker"-Endpunkt ---
+# Gemini-Modell konfigurieren
+try:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    print("✅ Gemini-Modell erfolgreich konfiguriert.")
+except Exception as e:
+    print(f"❌ SCHWERER FEHLER: Gemini-Modell konnte nicht konfiguriert werden: {e}")
+    sys.exit(f"Anwendung kann nicht ohne Gemini-Verbindung starten: {e}")
+
+# Tavily-Client initialisieren
+try:
+    tavily = TavilyClient(api_key=TAVILY_API_KEY)
+    print("✅ Tavily-Client erfolgreich initialisiert.")
+except Exception as e:
+    print(f"❌ WARNUNG: Tavily-Client konnte nicht initialisiert werden: {e}")
+    # Wir fahren fort, da Tavily ein Fallback ist
+
+
+# --- 2. Haupt-Endpunkt (Der "Motor") ---
+
 @app.route('/run-analysis', methods=['POST'])
-def run_analysis():
-    """Wird vom Google Cloud Scheduler aufgerufen."""
+def run_analysis_endpoint():
+    """
+    Dieser Endpunkt wird vom Cloud Scheduler aufgerufen, um die 
+    tägliche Finanzanalyse zu starten und in Firestore zu speichern.
+    """
     
-    # 1. Sicherheit
-    request_token = request.headers.get('Authorization')
-    if request_token != f"Bearer {AUTH_TOKEN}":
-        print(f"❌ Fehler: Ungültiger Auth-Token. Erhalten: {request_token}")
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-        
-    if not analyzer or not db:
-        print("❌ Fehler: Agent oder DB wurden nicht initialisiert (siehe Start-Logs).")
-        return jsonify({"status": "error", "message": "Agent not initialized"}), 500
+    print("🚀 /run-analysis Endpunkt aufgerufen. Starte Analyse...")
 
-    print("Auth-Token korrekt. Starte autonome Analyse...")
+    # --- HIER WURDE DER AUTH_TOKEN SICHERHEITS-CHECK ENTFERNT ---
+    # Wir verlassen uns jetzt auf die Google Cloud IAM-Authentifizierung,
+    # die VOR diesem Code-Aufruf stattfindet.
 
-    # 2. Ausführung
     try:
-        # Führe die Hauptlogik aus daily_crypto_agent.py aus
-        report_content = analyzer.generate_full_report()
+        # --- 2. Agenten-Logik (aus agent.py) ---
+        print("Schritt 1: Definiere Prompt für den Analysten...")
+        prompt = """
+        Du bist ein spezialisierter Hedgefonds-Analyst. 
+        Deine Aufgabe ist es, die 5 wichtigsten täglichen Finanznachrichten zu identifizieren, 
+        die den größten Einfluss auf die globalen Märkte (Aktien, Anleihen, Rohstoffe) haben könnten.
+
+        Führe für jede dieser 5 Nachrichten eine prägnante Analyse durch:
+        1.  **Zusammenfassung:** Was ist passiert?
+        2.  **Marktauswirkung (Sentiment):** Ist dies bullish, bearish oder neutral für globale Märkte?
+        3.  **Begründung:** Warum ist das so? Welche Sektoren oder Anlageklassen sind am stärksten betroffen?
+
+        Strukturiere deine Antwort ausschließlich als Markdown.
+        Beginne direkt mit '### Finanzanalyse des Tages'.
+        """
+
+        print("Schritt 2: Führe Tavily-Suche für 'top global financial news' durch...")
+        try:
+            # Versuche, aktuelle Nachrichten über Tavily zu erhalten
+            search_context = tavily.search(query="top global financial news", search_depth="advanced")
+            context_text = "\n".join([item['content'] for item in search_context['results']])
+            final_prompt = f"{prompt}\n\nAktueller Kontext aus den Nachrichten:\n{context_text}"
+            print("✅ Tavily-Suche erfolgreich, verwende erweiterten Kontext.")
         
-        # 3. Speichern
+        except Exception as e:
+            # Fallback, wenn Tavily fehlschlägt
+            print(f"⚠️ WARNUNG: Tavily-Suche fehlgeschlagen ({e}). Verwende Basis-Prompt.")
+            final_prompt = prompt
+
+        print("Schritt 3: Rufe Gemini-Modell für die Analyse auf...")
+        response = model.generate_content(final_prompt)
+        analysis_report = response.text
+        print("✅ Gemini-Analyse erfolgreich abgeschlossen.")
+
+        # --- 3. Speichern in Firestore ---
+        print(f"Schritt 4: Speichere Bericht in Firestore (Sammlung: 'reports')...")
+        
+        # Erstelle ein neues Dokument mit einer Zeitstempel-basierten ID
+        now = datetime.now()
+        doc_id = now.strftime('%Y-%m-%d_%H-%M-%S')
+        doc_ref = db.collection('reports').document(doc_id)
+        
+        # Daten für das Dokument vorbereiten
         report_data = {
-            "timestamp": datetime.now(datetime.timezone.utc),
-            "report": report_content
+            'timestamp': now,
+            'report_content': analysis_report,
+            'source': 'autonomer-finanz-agent-motor'
         }
         
-        # Fügt ein neues Dokument hinzu, Firestore generiert die ID
-        doc_ref = db.collection("reports").add(report_data)
-        
-        print(f"✅ Bericht erfolgreich erstellt und in Firestore gespeichert: {doc_ref[1].id}")
-        return jsonify({"status": "success", "report_id": doc_ref[1].id}), 200
+        # Daten in Firestore schreiben
+        doc_ref.set(report_data)
+        print(f"✅ Bericht erfolgreich in Firestore unter ID {doc_id} gespeichert.")
+
+        # Erfolgreiche Antwort an den Cloud Scheduler senden
+        return jsonify({"status": "success", "message": "Analyse erfolgreich durchgeführt und gespeichert.", "doc_id": doc_id}), 200
 
     except Exception as e:
-        print(f"❌ Fehler während der Analyse-Ausführung: {e}")
+        # Fehlerbehandlung, falls irgendetwas im 'try'-Block fehlschlägt
+        print(f"❌ FEHLER bei der Analyse-Ausführung: {e}")
+        print(traceback.format_exc()) # Detailliertes Fehler-Logging
+        
+        # Fehlermeldung an den Cloud Scheduler senden
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# --- 3. Start-Logik für Gunicorn (Produktion) ---
+
+if __name__ == '__main__':
+    # Diese Sektion wird von Gunicorn (Produktion) NICHT ausgeführt.
+    # Sie ist nur für lokale Tests (z.B. `python backend_main.py`)
+    print("Starte Flask-Server im lokalen Debug-Modus...")
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
